@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+	<title>Amazon Lex com JavaScript</title>
+	<script src="https://sdk.amazonaws.com/js/aws-sdk-2.466.0.min.js"></script>
+	<style language="text/css">
+		input#wisdom {
+			padding: 4px;
+			font-size: 1em;
+			width: 400px
+			
+		}
+
+		input::placeholder {
+			color: #ccc;
+			font-style: italic;
+		}
+
+		p.userRequest {
+			margin: 4px;
+			padding: 4px 10px 4px 10px;
+			border-radius: 4px;
+			min-width: 50%;
+			max-width: 85%;
+			float: left;
+			background-color: #0084ff;
+			color: #eee
+		}
+
+		p.lexResponse {
+			margin: 4px;
+			padding: 4px 10px 4px 10px;
+			border-radius: 4px;
+			text-align: right;
+			min-width: 50%;
+			max-width: 85%;
+			float: right;
+		
+			font-style: italic;
+			background-color: #eee
+		}
+
+		p.lexError {
+			margin: 4px;
+			padding: 4px 10px 4px 10px;
+			border-radius: 4px;
+			text-align: right;
+			min-width: 50%;
+			max-width: 85%;
+			float: right;
+			background-color: #f77;
+		}
+	
+	</style>
+</head>
+
+<body>
+	<h1 style="text-align:  left">Amazon Lex</h1>
+	<p style="width: 400px">
+		Esse pequeno chatbot mostra como como é fácil incorporar
+		<a href="https://aws.amazon.com/lex/" title="Amazon Lex (product)" target="_new">Amazon Lex</a> em portugês usando o <a href="https://aws.amazon.com/translate/" title="Amazon Lex (product)" target="_new">Amazon Translate</a> na sua página
+		Web.
+		Teste aqui, tente agendar uma consulta no dentista para fazer uma Raiz Radicular, Limpeza e Branqueamento.<br>
+		Obs: Use datas e horas no formato americano
+	</p>
+	<div id="conversation"
+		style="width: 400px; height: 400px; border: 1px solid #fff; background-color: #fff; padding: 4px; overflow: scroll">
+	</div>
+	<form id="chatform" style="margin-top: 10px" onsubmit="return pushChat();">
+		<input type="text" id="wisdom" size="80" value="" placeholder="Agende uma consulta">
+	</form>
+	<script type="text/javascript">
+		// set the focus to the input box
+		document.getElementById("wisdom").focus();
+
+		// Initialize the Amazon Cognito credentials provider
+		AWS.config.region = 'us-east-1'; // Region
+		AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+			// Provide your Pool Id here
+			IdentityPoolId: 'us-east-1:cf9092dd-0bcd-40ea-a515-9283f00a64db',
+		});
+
+		var lexruntime = new AWS.LexRuntime();
+		var lexUserId = 'chatbot-demo' + Date.now();
+		var sessionAttributes = {};
+		var translate = new AWS.Translate({ apiVersion: '2017-07-01' });
+
+		function pushChat() {
+			// if there is text to be sent...
+			var wisdomText = document.getElementById('wisdom');
+			if (wisdomText && wisdomText.value && wisdomText.value.trim().length > 0) {
+
+				// disable input to show we're sending it
+				var wisdom = wisdomText.value.trim();
+				wisdomText.value = '...';
+				wisdomText.locked = true;
+
+				var translateparams = {
+					SourceLanguageCode: 'pt', /* required */
+					TargetLanguageCode: 'en', /* required */
+					Text: wisdom, /* required */
+				};
+
+				showRequest(wisdom);
+				translate.translateText(translateparams, function (err, data) {
+					if (err) console.log(err, err.stack); // an error occurred
+					else {
+						console.log(data.TranslatedText);  // translated text
+
+						// send it to the Lex runtime
+						var params = {
+							botAlias: '$LATEST',
+							botName: 'ScheduleAppointment',
+							inputText: data.TranslatedText,
+							userId: lexUserId,
+							sessionAttributes: sessionAttributes
+						};
+
+
+						lexruntime.postText(params, function (err, lexResponse) {
+							if (err) {
+								console.log(err, err.stack);
+								showError('Error:  ' + err.message + ' (see console for details)')
+							}
+							if (lexResponse) {
+								// capture the sessionAttributes for the next cycle
+								sessionAttributes = lexResponse.sessionAttributes;
+								// show response and/or error/dialog status
+								var translateparams = {
+									SourceLanguageCode: 'en', /* required */
+									TargetLanguageCode: 'pt', /* required */
+									Text: lexResponse.message, /* required */
+								};
+								translate.translateText(translateparams, function (err, data) {
+									if (err) console.log(err, err.stack); // an error occurred
+									else {
+										console.log(data.TranslatedText);  // translated text
+										lexResponse.message = data.TranslatedText;
+										showResponse(lexResponse);
+									}
+								});
+
+							}
+							// re-enable input
+							wisdomText.value = '';
+							wisdomText.locked = false;
+						});
+					}
+				});
+			}
+			// we always cancel form submission
+			return false;
+		}
+
+		function showRequest(daText) {
+
+			var conversationDiv = document.getElementById('conversation');
+			var requestPara = document.createElement("P");
+			requestPara.className = 'userRequest';
+			requestPara.appendChild(document.createTextNode(daText));
+			conversationDiv.appendChild(requestPara);
+			conversationDiv.scrollTop = conversationDiv.scrollHeight;
+		}
+
+		function showError(daText) {
+
+			var conversationDiv = document.getElementById('conversation');
+			var errorPara = document.createElement("P");
+			errorPara.className = 'lexError';
+			errorPara.appendChild(document.createTextNode(daText));
+			conversationDiv.appendChild(errorPara);
+			conversationDiv.scrollTop = conversationDiv.scrollHeight;
+		}
+
+		function showResponse(lexResponse) {
+
+			var conversationDiv = document.getElementById('conversation');
+			var responsePara = document.createElement("P");
+			responsePara.className = 'lexResponse';
+			if (lexResponse.message) {
+				responsePara.appendChild(document.createTextNode(lexResponse.message));
+				responsePara.appendChild(document.createElement('br'));
+			}
+			if (lexResponse.dialogState === 'ReadyForFulfillment') {
+				responsePara.appendChild(document.createTextNode(
+					'Ready for fulfillment'));
+				// TODO:  show slot values
+			} else {
+				responsePara.appendChild(document.createTextNode(
+					'(' + lexResponse.dialogState + ')'));
+			}
+			conversationDiv.appendChild(responsePara);
+			conversationDiv.scrollTop = conversationDiv.scrollHeight;
+		}
+	</script>
+</body>
+
+</html>
